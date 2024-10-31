@@ -17,12 +17,14 @@ using UnityEngine.UI;
 
 namespace BulkPurchasePlus
 {
-    [BepInPlugin("com.Kalkune.BulkPurchasePlus", "BulkPurchasePlus", "1.0.0")]
+    [BepInPlugin("com.Kalkune.BulkPurchasePlus", "BulkPurchasePlus", "1.0.1")]
     public class BulkPurchasePlus : BaseUnityPlugin
     {
 
         internal static Harmony Harmony;
 		public static ConfigEntry<int> HardThreshold { get; set; }
+		public static ConfigEntry<int> StorageThreshold { get; set; }
+		public static ConfigEntry<int> StorageBoxThreshold { get; set; }
 		public static ConfigEntry<KeyboardShortcut> KeyboardShortcutDoublePrice { get; set; }
 		public static int threshold;
 		public static int currentMode = 1;
@@ -31,6 +33,8 @@ namespace BulkPurchasePlus
 		public void Awake()
 		{
 			HardThreshold = Config.Bind<int>("Threshold", "Hard Threshold Cap", 50, "Products with quantity above this number won't be ordered with Needs Only if on alternate modes.");
+			StorageThreshold = Config.Bind<int>("Threshold", "Storage Threshold Cap", 30, "Products with quantity above this number won't be ordered with Product Storage Mode.");
+			StorageBoxThreshold = Config.Bind<int>("Threshold", "Storage Box Threshold Cap", 4, "Products with box quantity above this number won't be ordered with Box Storage Mode.");
 			KeyboardShortcutDoublePrice = Config.Bind<KeyboardShortcut>("Threshold", "Toggle Threshold Keybind", new KeyboardShortcut((KeyCode)114, Array.Empty<KeyCode>()), "");
 			threshold = HardThreshold.Value;
 			Harmony = new("com.Kalkune.BulkPurchasePlus");
@@ -41,15 +45,10 @@ namespace BulkPurchasePlus
 			KeyboardShortcut value = KeyboardShortcutDoublePrice.Value;
 			if (value.IsDown())
 			{
-				if (currentMode == 1 || currentMode == 2)
-					currentMode++;
-				else if (currentMode == 3)
+				if (currentMode >= 6)
 					currentMode = 1;
 				else
-                {
-					Debug.LogError("Unknown Mode, setting to 1");
-					currentMode = 1;
-                }
+					currentMode++;
 				notificationMessage = "ThresholdToggle";
 				notificationSent = true;
 				return;

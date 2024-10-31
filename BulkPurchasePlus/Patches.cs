@@ -17,13 +17,43 @@ namespace BuyAllButton.Patches
                 ___inCooldown = false;
                 BulkPurchasePlus.BulkPurchasePlus.notificationSent = false;
                 string text = "`";
-                if(BulkPurchasePlus.BulkPurchasePlus.currentMode == 1)
-                    text = text + "Threshold: Shelves Filled";
-                else if (BulkPurchasePlus.BulkPurchasePlus.currentMode == 2)
-                    text = text + "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value;
-                else if(BulkPurchasePlus.BulkPurchasePlus.currentMode == 3)
-                    text = text + "Threshold: Mixed";
+                switch (BulkPurchasePlus.BulkPurchasePlus.currentMode)
+                {
+                    case 1:
+                        text += "Threshold: Shelves Filled";
+                        break;
+                    case 2:
+                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value + " On Shelf";
+                        break;
+                    case 3:
+                        text += "Threshold: Shelf Mixed";
+                        break;
+                    case 4:
+                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value + " Product In Storage";
+                        break;
+                    case 5:
+                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value + " Boxes In Storage";
+                        break;
+                    case 6:
+                        text += "Threshold: Storage Mixed";
+                        break;
+                }
                 __instance.CreateCanvasNotification(text);
+            }
+        }
+        [HarmonyPatch(typeof(LocalizationManager))]
+        internal class LocalizationHandler
+        {
+            [HarmonyPatch("GetLocalizationString")]
+            [HarmonyPrefix]
+            public static bool noLocalization_Prefix(ref string key, ref string __result)
+            {
+                if (key[0] == '`')
+                {
+                    __result = key.Substring(1);
+                    return false;
+                }
+                return true;
             }
         }
     }
@@ -191,7 +221,7 @@ namespace BuyAllButton.Patches
                 if (productComponent != null && productListing.unlockedProductTiers[productComponent.productTier])
                 {
                     int productID = productComponent.productID;
-
+                    bool order = false;
                     // Get the count of existing products
                     int[] productExistences = managerBlackboard.GetProductsExistences(productID);
                     int totalExistence = 0;
@@ -200,40 +230,50 @@ namespace BuyAllButton.Patches
                         totalExistence += count;
                     }
 
-                    if (BulkPurchasePlus.BulkPurchasePlus.currentMode == 1)
+                    order = CheckOrderAviablility(totalExistence, productID, BulkPurchasePlus.BulkPurchasePlus.currentMode, productComponent);
+
+                    if (order)
                     {
-                        if (totalExistence <= BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID))
-                        {
-                            float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
-                            boxPrice *= productListing.tierInflation[productComponent.productTier];
-                            float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
-                            managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
-                        }
+                        float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
+                        boxPrice *= productListing.tierInflation[productComponent.productTier];
+                        float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
+                        managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
                     }
-                    else if (BulkPurchasePlus.BulkPurchasePlus.currentMode == 2)
-                    {
-                        if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold)
-                        {
-                            float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
-                            boxPrice *= productListing.tierInflation[productComponent.productTier];
-                            float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
-                            managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
-                        }
-                    }
-                    else if(BulkPurchasePlus.BulkPurchasePlus.currentMode == 3)
-                    {
-                        if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold && totalExistence <= BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID))
-                        {
-                            float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
-                            boxPrice *= productListing.tierInflation[productComponent.productTier];
-                            float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
-                            managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
-                        }
-                    }
+
                 }
             }
         }
-
-
+        public static bool CheckOrderAviablility(int totalExistence, int productID, int orderNumber, Data_Product productComponent)
+        {
+            bool order = false;
+            switch (orderNumber)
+            {
+                case 1:
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID))
+                        order = true;
+                    break;
+                case 2:
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold)
+                        order = true;
+                    break;
+                case 3:
+                    if (CheckOrderAviablility(totalExistence, productID, 1, productComponent) && CheckOrderAviablility(totalExistence, productID, 2, productComponent)/*totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold && totalExistence <= BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID)*/)
+                        order = true;
+                    break;
+                case 4:
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value)
+                        order = true;
+                    break;
+                case 5:
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + (BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value * productComponent.maxItemsPerBox))
+                        order = true;
+                    break;
+                case 6:
+                    if (CheckOrderAviablility(totalExistence, productID, 4, productComponent) && CheckOrderAviablility(totalExistence, productID, 5, productComponent))
+                        order = true;
+                    break;
+            }
+            return order;
+        }
     }
 }
