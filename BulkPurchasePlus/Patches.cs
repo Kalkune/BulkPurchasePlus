@@ -1,130 +1,166 @@
-﻿using HarmonyLib;
+using HarmonyLib;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-namespace BuyAllButton.Patches
-{
+namespace BetterSMT.Patches {
     [HarmonyPatch(typeof(GameCanvas))]
-    internal class NotificationHandler
-    {
+    internal class NotificationHandler {
         [HarmonyPatch("Update")]
         [HarmonyPostfix]
-        public static void NotificationHandler_Postfix(GameCanvas __instance, ref bool ___inCooldown)
-        {
-            if (BulkPurchasePlus.BulkPurchasePlus.notificationSent)
-            {
-                ___inCooldown = false;
-                BulkPurchasePlus.BulkPurchasePlus.notificationSent = false;
-                string text = "`";
-                switch (BulkPurchasePlus.BulkPurchasePlus.currentMode)
-                {
-                    case 1:
-                        text += "Threshold: Shelves Filled";
-                        break;
-                    case 2:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value + " On Shelf";
-                        break;
-                    case 3:
-                        text += "Threshold: Shelf Mixed";
-                        break;
-                    case 4:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value + " Product In Storage";
-                        break;
-                    case 5:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value + " Boxes In Storage";
-                        break;
-                    case 6:
-                        text += "Threshold: Storage Mixed";
-                        break;
-                }
-                __instance.CreateCanvasNotification(text);
+        public static void NotificationHandler_Postfix(GameCanvas __instance, ref bool ___inCooldown) {
+            if (!BulkPurchasePlus.BulkPurchasePlus.notificationSent) {
+                return;
             }
+
+            ___inCooldown = false;
+            BulkPurchasePlus.BulkPurchasePlus.notificationSent = false;
+
+            string notificationText = GenerateNotificationText(BulkPurchasePlus.BulkPurchasePlus.currentMode);
+            __instance.CreateCanvasNotification(notificationText);
         }
-        [HarmonyPatch(typeof(LocalizationManager))]
-        internal class LocalizationHandler
-        {
-            [HarmonyPatch("GetLocalizationString")]
-            [HarmonyPrefix]
-            public static bool noLocalization_Prefix(ref string key, ref string __result)
-            {
-                if (key[0] == '`')
-                {
-                    __result = key.Substring(1);
-                    return false;
-                }
-                return true;
-            }
+
+        private static string GenerateNotificationText(int mode) {
+            return mode switch {
+                1 => "`Threshold: Shelves Filled",
+                2 => $"`Threshold: {BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value} On Shelf",
+                3 => "`Threshold: Shelf Mixed",
+                4 => $"`Threshold: {BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value} Product In Storage",
+                5 => $"`Threshold: {BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value} Boxes In Storage",
+                6 => "`Threshold: Storage Mixed",
+                _ => "`Threshold: Unknown",
+            };
         }
     }
-    [HarmonyPatch(typeof(PlayerNetwork), nameof(PlayerNetwork.OnStartClient))]
-    public class AddButton
-    {
-        public static bool Prefix()
-        {
-            // Find the Buttons_Bar GameObject
-            GameObject buttonsBar = GameObject.Find("Buttons_Bar");
 
-            if (buttonsBar == null)
-            {
+    [HarmonyPatch(typeof(LocalizationManager))]
+    internal class LocalizationHandler {
+        [HarmonyPatch("GetLocalizationString")]
+        [HarmonyPrefix]
+        public static bool HandleCustomLocalization(ref string key, ref string __result) {
+            if (key.StartsWith("`")) {
+                __result = key[1..];
+                return false;
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerNetwork), nameof(PlayerNetwork.OnStartClient))]
+    public class ButtonManager {
+        private const float ButtonWidth = 110;
+        private const float ButtonHeight = 35;
+
+        public static bool Prefix() {
+            GameObject buttonsBar = GameObject.Find("Buttons_Bar");
+            if (buttonsBar == null) {
                 return true;
             }
 
-            // Create the "Add All to Cart" button if it doesn't exist
-            if (buttonsBar.transform.Find("AddAllToCartButton") == null)
-            {
-                GameObject addAllButton = CreateButton(buttonsBar, "AddAllToCartButton", -450, 110); // Full width
-                AddButtonEvents(addAllButton.GetComponent<Button>(), addAllButton.GetComponent<Image>(), OnAddAllToCartButtonClick);
-            }
-
-            // Create the "Remove All from Cart" button if it doesn't exist
-            if (buttonsBar.transform.Find("RemoveAllFromCartButton") == null)
-            {
-                GameObject removeAllButton = CreateButton(buttonsBar, "RemoveAllFromCartButton", 425, 110); // Shifted 800 units to the right
-                AddButtonEvents(removeAllButton.GetComponent<Button>(), removeAllButton.GetComponent<Image>(), OnRemoveAllFromCartButtonClick);
-            }
-
-            // Create the new button if it doesn't exist
-            if (buttonsBar.transform.Find("NeedsOnlyButton") == null)
-            {
-                // Position this button 50px to the right of the "AddAllToCartButton"
-                GameObject newButton = CreateButton(buttonsBar, "NeedsOnlyButton", -325, 55); // Half width, 50px right
-                AddButtonEvents(newButton.GetComponent<Button>(), newButton.GetComponent<Image>(), OnNeedsOnlyButtonClick);
-            }
+            CreateButtonIfMissing(buttonsBar, "AddAllToCartButton", -450, ButtonWidth, "Add All to Cart", OnAddAllToCartButtonClick);
+            CreateButtonIfMissing(buttonsBar, "RemoveAllFromCartButton", 425, ButtonWidth, "Remove All from Cart", OnRemoveAllFromCartButtonClick);
+            CreateButtonIfMissing(buttonsBar, "NeedsOnlyButton", -325, ButtonWidth, "Needs Only", OnNeedsOnlyButtonClick);
 
             return true;
         }
 
-        private static GameObject CreateButton(GameObject parent, string name, float xOffset, float width)
-        {
-            // Create the button GameObject
-            GameObject buttonObject = new GameObject(name);
-            RectTransform rectTransform = buttonObject.AddComponent<RectTransform>();
-            Button buttonComponent = buttonObject.AddComponent<Button>();
-            Image buttonImage = buttonObject.AddComponent<Image>();
+        private static void CreateButtonIfMissing(GameObject parent, string name, float xOffset, float width, string text, UnityEngine.Events.UnityAction onClickAction) {
+            if (parent.transform.Find(name) != null) {
+                return;
+            }
 
-            // Set the button's parent to Buttons_Bar
+            GameObject button = UIUtils.CreateButton(parent, name, xOffset, width, ButtonHeight, text);
+            UIUtils.AddButtonEvents(button.GetComponent<Button>(), button.GetComponent<Image>(), onClickAction);
+        }
+
+        private static void OnAddAllToCartButtonClick() {
+            ProductListing productListing = Object.FindFirstObjectByType<ProductListing>();
+            ManagerBlackboard managerBlackboard = Object.FindFirstObjectByType<ManagerBlackboard>();
+
+            if (productListing == null || managerBlackboard == null) {
+                return;
+            }
+
+            foreach (GameObject productPrefab in productListing.productPrefabs) {
+                Data_Product product = productPrefab.GetComponent<Data_Product>();
+                if (product != null && productListing.unlockedProductTiers[product.productTier]) {
+                    float roundedBoxPrice = CalculateBoxPrice(product, productListing.tierInflation[product.productTier]);
+                    managerBlackboard.AddShoppingListProduct(product.productID, roundedBoxPrice);
+                }
+            }
+        }
+
+        private static void OnRemoveAllFromCartButtonClick() {
+            ManagerBlackboard managerBlackboard = Object.FindFirstObjectByType<ManagerBlackboard>();
+            if (managerBlackboard == null) {
+                return;
+            }
+
+            for (int i = managerBlackboard.shoppingListParent.transform.childCount - 1; i >= 0; i--) {
+                managerBlackboard.RemoveShoppingListProduct(i);
+            }
+        }
+
+        private static void OnNeedsOnlyButtonClick() {
+            ProductListing productListing = Object.FindFirstObjectByType<ProductListing>();
+            ManagerBlackboard managerBlackboard = Object.FindFirstObjectByType<ManagerBlackboard>();
+
+            if (productListing == null || managerBlackboard == null) {
+                return;
+            }
+
+            foreach (GameObject productPrefab in productListing.productPrefabs) {
+                Data_Product product = productPrefab.GetComponent<Data_Product>();
+                if (product == null || !productListing.unlockedProductTiers[product.productTier]) {
+                    continue;
+                }
+
+                int totalExistence = managerBlackboard.GetProductsExistences(product.productID).Sum();
+                if (ShouldOrderProduct(totalExistence, product.productID, BulkPurchasePlus.BulkPurchasePlus.currentMode, product)) {
+                    float roundedBoxPrice = CalculateBoxPrice(product, productListing.tierInflation[product.productTier]);
+                    managerBlackboard.AddShoppingListProduct(product.productID, roundedBoxPrice);
+                }
+            }
+        }
+
+        private static bool ShouldOrderProduct(int totalExistence, int productID, int mode, Data_Product product) {
+            return mode switch {
+                1 => totalExistence < BulkPurchasePlus.BulkPurchasePlus.CalculateThreshold(NPC_Manager.Instance, productID),
+                2 => totalExistence < BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value,
+                3 => ShouldOrderProduct(totalExistence, productID, 1, product) && ShouldOrderProduct(totalExistence, productID, 2, product),
+                4 => totalExistence < BulkPurchasePlus.BulkPurchasePlus.CalculateThreshold(NPC_Manager.Instance, productID) + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value,
+                5 => totalExistence < BulkPurchasePlus.BulkPurchasePlus.CalculateThreshold(NPC_Manager.Instance, productID) + BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value * product.maxItemsPerBox,
+                6 => ShouldOrderProduct(totalExistence, productID, 4, product) && ShouldOrderProduct(totalExistence, productID, 5, product),
+                _ => false,
+            };
+        }
+
+        private static float CalculateBoxPrice(Data_Product product, float inflationRate) {
+            float boxPrice = product.basePricePerUnit * product.maxItemsPerBox;
+            return Mathf.Round(boxPrice * inflationRate * 100f) / 100f;
+        }
+    }
+
+    internal static class UIUtils {
+        public static GameObject CreateButton(GameObject parent, string name, float xOffset, float width, float height, string buttonText) {
+            GameObject buttonObject = new(name);
+            RectTransform rectTransform = buttonObject.AddComponent<RectTransform>();
+            _ = buttonObject.AddComponent<Button>();
+            _ = buttonObject.AddComponent<Image>();
+
             buttonObject.transform.SetParent(parent.transform, false);
 
-            // Set up RectTransform properties
-            rectTransform.sizeDelta = new Vector2(width, 35); // Adjust width here
+            rectTransform.sizeDelta = new Vector2(width, height);
             rectTransform.anchoredPosition = new Vector2(xOffset, 612);
             rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
             rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-            rectTransform.pivot = new Vector2(0.5f, 0.5f);
 
-            // Create and configure the text component
-            GameObject textObject = new GameObject("ButtonText");
+            GameObject textObject = new("ButtonText");
             textObject.transform.SetParent(buttonObject.transform, false);
 
-            RectTransform textRectTransform = textObject.AddComponent<RectTransform>();
             Text textComponent = textObject.AddComponent<Text>();
-
-            textRectTransform.sizeDelta = rectTransform.sizeDelta;
-            textRectTransform.anchoredPosition = Vector2.zero;
-
-            textComponent.text = name == "AddAllToCartButton" ? "Add All to Cart" :
-                                  name == "RemoveAllFromCartButton" ? "Remove All from Cart" : "Needs Only Button";
+            textComponent.text = buttonText;
             textComponent.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             textComponent.alignment = TextAnchor.MiddleCenter;
             textComponent.color = Color.black;
@@ -133,147 +169,23 @@ namespace BuyAllButton.Patches
             return buttonObject;
         }
 
-        private static void AddButtonEvents(Button button, Image buttonImage, UnityEngine.Events.UnityAction onClickAction)
-        {
+        public static void AddButtonEvents(Button button, Image buttonImage, UnityEngine.Events.UnityAction onClickAction) {
             EventTrigger trigger = button.gameObject.AddComponent<EventTrigger>();
 
-            // Hover enter event
-            EventTrigger.Entry pointerEnter = new EventTrigger.Entry
-            {
-                eventID = EventTriggerType.PointerEnter
-            };
-            pointerEnter.callback.AddListener((data) => OnHoverEnter(buttonImage));
-            trigger.triggers.Add(pointerEnter);
+            AddTriggerEvent(trigger, EventTriggerType.PointerEnter, () => buttonImage.color = new Color(5f / 255f, 133f / 255f, 208f / 255f));
+            AddTriggerEvent(trigger, EventTriggerType.PointerExit, () => buttonImage.color = Color.white);
 
-            // Hover exit event
-            EventTrigger.Entry pointerExit = new EventTrigger.Entry
-            {
-                eventID = EventTriggerType.PointerExit
-            };
-            pointerExit.callback.AddListener((data) => OnHoverExit(buttonImage));
-            trigger.triggers.Add(pointerExit);
-
-            // Click event (only triggers if hovered)
-            button.onClick.AddListener(() =>
-            {
-                if (buttonImage.color != Color.white)
-                {
+            button.onClick.AddListener(() => {
+                if (buttonImage.color != Color.white) {
                     onClickAction.Invoke();
                 }
             });
         }
 
-        private static void OnHoverEnter(Image buttonImage)
-        {
-            buttonImage.color = new Color(5f / 255f, 133f / 255f, 208f / 255f); // Light blue hover color
-        }
-
-        private static void OnHoverExit(Image buttonImage)
-        {
-            buttonImage.color = Color.white; // Revert color when not hovering
-        }
-
-        private static void OnAddAllToCartButtonClick()
-        {
-            ProductListing productListing = GameObject.FindFirstObjectByType<ProductListing>();
-            ManagerBlackboard managerBlackboard = GameObject.FindFirstObjectByType<ManagerBlackboard>();
-
-            if (productListing == null || managerBlackboard == null) return;
-
-            foreach (var productPrefab in productListing.productPrefabs)
-            {
-                var productComponent = productPrefab.GetComponent<Data_Product>();
-                if (productComponent != null && productListing.unlockedProductTiers[productComponent.productTier])
-                {
-                    float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
-                    boxPrice *= productListing.tierInflation[productComponent.productTier];
-                    float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
-                    managerBlackboard.AddShoppingListProduct(productComponent.productID, roundedBoxPrice);
-                }
-            }
-        }
-
-        private static void OnRemoveAllFromCartButtonClick()
-        {
-            ManagerBlackboard managerBlackboard = GameObject.FindFirstObjectByType<ManagerBlackboard>();
-
-            if (managerBlackboard == null) return;
-
-            int itemCount = managerBlackboard.shoppingListParent.transform.childCount;
-            for (int i = itemCount - 1; i >= 0; i--)
-            {
-                managerBlackboard.RemoveShoppingListProduct(i);
-            }
-        }
-
-        private static void OnNeedsOnlyButtonClick()
-        {
-            ProductListing productListing = GameObject.FindFirstObjectByType<ProductListing>();
-            ManagerBlackboard managerBlackboard = GameObject.FindFirstObjectByType<ManagerBlackboard>();
-
-            if (productListing == null || managerBlackboard == null) return;
-
-            // Define your threshold for product existence
-
-            foreach (var productPrefab in productListing.productPrefabs)
-            {
-                var productComponent = productPrefab.GetComponent<Data_Product>();
-                if (productComponent != null && productListing.unlockedProductTiers[productComponent.productTier])
-                {
-                    int productID = productComponent.productID;
-                    bool order = false;
-                    // Get the count of existing products
-                    int[] productExistences = managerBlackboard.GetProductsExistences(productID);
-                    int totalExistence = 0;
-                    foreach (int count in productExistences)
-                    {
-                        totalExistence += count;
-                    }
-
-                    order = CheckOrderAviablility(totalExistence, productID, BulkPurchasePlus.BulkPurchasePlus.currentMode, productComponent);
-
-                    if (order)
-                    {
-                        float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
-                        boxPrice *= productListing.tierInflation[productComponent.productTier];
-                        float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
-                        managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
-                    }
-
-                }
-            }
-        }
-        public static bool CheckOrderAviablility(int totalExistence, int productID, int orderNumber, Data_Product productComponent)
-        {
-            bool order = false;
-            switch (orderNumber)
-            {
-                case 1:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID))
-                        order = true;
-                    break;
-                case 2:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold)
-                        order = true;
-                    break;
-                case 3:
-                    if (CheckOrderAviablility(totalExistence, productID, 1, productComponent) && CheckOrderAviablility(totalExistence, productID, 2, productComponent)/*totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold && totalExistence <= BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID)*/)
-                        order = true;
-                    break;
-                case 4:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value)
-                        order = true;
-                    break;
-                case 5:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + (BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value * productComponent.maxItemsPerBox))
-                        order = true;
-                    break;
-                case 6:
-                    if (CheckOrderAviablility(totalExistence, productID, 4, productComponent) && CheckOrderAviablility(totalExistence, productID, 5, productComponent))
-                        order = true;
-                    break;
-            }
-            return order;
+        private static void AddTriggerEvent(EventTrigger trigger, EventTriggerType eventType, UnityEngine.Events.UnityAction action) {
+            EventTrigger.Entry entry = new() { eventID = eventType };
+            entry.callback.AddListener((data) => action.Invoke());
+            trigger.triggers.Add(entry);
         }
     }
 }
