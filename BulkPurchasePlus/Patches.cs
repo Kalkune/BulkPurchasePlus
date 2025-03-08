@@ -1,4 +1,7 @@
 ﻿using HarmonyLib;
+using System;
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -17,25 +20,46 @@ namespace BuyAllButton.Patches
                 ___inCooldown = false;
                 BulkPurchasePlus.BulkPurchasePlus.notificationSent = false;
                 string text = "`";
-                switch (BulkPurchasePlus.BulkPurchasePlus.currentMode)
+                switch (BulkPurchasePlus.BulkPurchasePlus.notificationMessage)
                 {
-                    case 1:
-                        text += "Threshold: Shelves Filled";
+                    case "ThresholdToggle":
+                        switch (BulkPurchasePlus.BulkPurchasePlus.currentMode)
+                        {
+                            case 1:
+                                text += "Threshold: Shelves Filled";
+                                break;
+                            case 2:
+                                text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value + " On Shelf";
+                                break;
+                            case 3:
+                                text += "Threshold: Shelf Mixed";
+                                break;
+                            case 4:
+                                text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value + " Product In Storage";
+                                break;
+                            case 5:
+                                text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value + " Boxes In Storage";
+                                break;
+                            case 6:
+                                text += "Threshold: Storage Mixed";
+                                break;
+                            case 7:
+                                text += "Threshold: Storage Filled";
+                                break;
+                        }
                         break;
-                    case 2:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.HardThreshold.Value + " On Shelf";
+                    case "ProductBlacklist":
+                        if (BulkPurchasePlus.BulkPurchasePlus.productToggledBlacklist)
+                            text += "Blacklisted: " + BulkPurchasePlus.BulkPurchasePlus.productToggled;
+                        else if (!BulkPurchasePlus.BulkPurchasePlus.productToggledBlacklist)
+
+                            text += "Un-Blacklisted: " + BulkPurchasePlus.BulkPurchasePlus.productToggled;
                         break;
-                    case 3:
-                        text += "Threshold: Shelf Mixed";
-                        break;
-                    case 4:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value + " Product In Storage";
-                        break;
-                    case 5:
-                        text += "Threshold: " + BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value + " Boxes In Storage";
-                        break;
-                    case 6:
-                        text += "Threshold: Storage Mixed";
+                    case "BuyMaxToggle":
+                        if (BulkPurchasePlus.BulkPurchasePlus.buyMaxToggle)
+                            text += "Buy Max Enabled";
+                        else if (!BulkPurchasePlus.BulkPurchasePlus.buyMaxToggle)
+                            text += "Buy Max Disabled";
                         break;
                 }
                 __instance.CreateCanvasNotification(text);
@@ -77,11 +101,11 @@ namespace BuyAllButton.Patches
                 AddButtonEvents(addAllButton.GetComponent<Button>(), addAllButton.GetComponent<Image>(), OnAddAllToCartButtonClick);
             }
 
-            // Create the "Remove All from Cart" button if it doesn't exist
-            if (buttonsBar.transform.Find("RemoveAllFromCartButton") == null)
+            // Create the "Buy Max" button if it doesn't exist
+            if (buttonsBar.transform.Find("BuyMaxButton") == null)
             {
-                GameObject removeAllButton = CreateButton(buttonsBar, "RemoveAllFromCartButton", 425, 110); // Shifted 800 units to the right
-                AddButtonEvents(removeAllButton.GetComponent<Button>(), removeAllButton.GetComponent<Image>(), OnRemoveAllFromCartButtonClick);
+                GameObject buyMaxButton = CreateButton(buttonsBar, "BuyMaxButton", 425, 110); // Shifted 800 units to the right
+                AddButtonEvents(buyMaxButton.GetComponent<Button>(), buyMaxButton.GetComponent<Image>(), OnBuyMaxButtonClick);
             }
 
             // Create the new button if it doesn't exist
@@ -124,7 +148,7 @@ namespace BuyAllButton.Patches
             textRectTransform.anchoredPosition = Vector2.zero;
 
             textComponent.text = name == "AddAllToCartButton" ? "Add All to Cart" :
-                                  name == "RemoveAllFromCartButton" ? "Remove All from Cart" : "Needs Only Button";
+                                  name == "BuyMaxButton" ? "Toggle Buy Max" : "Needs Only Button";
             textComponent.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             textComponent.alignment = TextAnchor.MiddleCenter;
             textComponent.color = Color.black;
@@ -193,17 +217,15 @@ namespace BuyAllButton.Patches
             }
         }
 
-        private static void OnRemoveAllFromCartButtonClick()
+        private static void OnBuyMaxButtonClick()
         {
             ManagerBlackboard managerBlackboard = GameObject.FindFirstObjectByType<ManagerBlackboard>();
 
             if (managerBlackboard == null) return;
 
-            int itemCount = managerBlackboard.shoppingListParent.transform.childCount;
-            for (int i = itemCount - 1; i >= 0; i--)
-            {
-                managerBlackboard.RemoveShoppingListProduct(i);
-            }
+            BulkPurchasePlus.BulkPurchasePlus.buyMaxToggle = !BulkPurchasePlus.BulkPurchasePlus.buyMaxToggle;
+            BulkPurchasePlus.BulkPurchasePlus.notificationMessage = "BuyMaxToggle";
+            BulkPurchasePlus.BulkPurchasePlus.notificationSent = true;
         }
 
         private static void OnNeedsOnlyButtonClick()
@@ -230,9 +252,28 @@ namespace BuyAllButton.Patches
                         totalExistence += count;
                     }
 
+                    if (BulkPurchasePlus.BulkPurchasePlus.currentShoppingList.Contains(productComponent.name))
+                        totalExistence += BulkPurchasePlus.BulkPurchasePlus.currentShoppingList.FindAll(s => s.Equals(productComponent.name)).Count * productComponent.maxItemsPerBox;
+
                     order = CheckOrderAviablility(totalExistence, productID, BulkPurchasePlus.BulkPurchasePlus.currentMode, productComponent);
 
-                    if (order)
+                    if (BulkPurchasePlus.BulkPurchasePlus.buyMaxToggle && order)
+                    {
+                        int buyMaxMaybe=0;
+                        if (BulkPurchasePlus.BulkPurchasePlus.currentMode < 7)
+                            buyMaxMaybe = BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, false);
+                        else if (BulkPurchasePlus.BulkPurchasePlus.currentMode == 7)
+                            buyMaxMaybe = BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, true);
+                        else
+                            Debug.LogError("Couldn't choose a mode");
+                        buyMaxMaybe = buyMaxMaybe - totalExistence;
+                        float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
+                        boxPrice *= productListing.tierInflation[productComponent.productTier];
+                        float roundedBoxPrice = Mathf.Round(boxPrice * 100f) / 100f;
+                        for (int i = 0; i < Math.Ceiling((float)buyMaxMaybe/productComponent.maxItemsPerBox); i++)
+                            managerBlackboard.AddShoppingListProduct(productID, roundedBoxPrice);
+                    }
+                    else if (order)
                     {
                         float boxPrice = productComponent.basePricePerUnit * productComponent.maxItemsPerBox;
                         boxPrice *= productListing.tierInflation[productComponent.productTier];
@@ -246,30 +287,36 @@ namespace BuyAllButton.Patches
         public static bool CheckOrderAviablility(int totalExistence, int productID, int orderNumber, Data_Product productComponent)
         {
             bool order = false;
+            if (BulkPurchasePlus.BulkPurchasePlus.productBlacklist.Contains(productComponent.name))
+                return order;
             switch (orderNumber)
             {
-                case 1:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID))
+                case 1://Shelves Filled
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, false))
                         order = true;
                     break;
-                case 2:
+                case 2://Items on Shelf
                     if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold)
                         order = true;
                     break;
-                case 3:
-                    if (CheckOrderAviablility(totalExistence, productID, 1, productComponent) && CheckOrderAviablility(totalExistence, productID, 2, productComponent)/*totalExistence < BulkPurchasePlus.BulkPurchasePlus.threshold && totalExistence <= BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID)*/)
+                case 3://Shelves Mixed
+                    if (CheckOrderAviablility(totalExistence, productID, 1, productComponent) && CheckOrderAviablility(totalExistence, productID, 2, productComponent))
                         order = true;
                     break;
-                case 4:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value)
+                case 4://Product in Storage
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, false) + BulkPurchasePlus.BulkPurchasePlus.StorageThreshold.Value)
                         order = true;
                     break;
-                case 5:
-                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID) + (BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value * productComponent.maxItemsPerBox))
+                case 5://Boxes in Storage
+                    if (totalExistence < BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, false) + ((BulkPurchasePlus.BulkPurchasePlus.StorageBoxThreshold.Value * productComponent.maxItemsPerBox)-productComponent.maxItemsPerBox + 1))
                         order = true;
                     break;
-                case 6:
+                case 6://Storage Mixed
                     if (CheckOrderAviablility(totalExistence, productID, 4, productComponent) && CheckOrderAviablility(totalExistence, productID, 5, productComponent))
+                        order = true;
+                    break;
+                case 7://Storage Filled
+                    if (totalExistence < (BulkPurchasePlus.BulkPurchasePlus.somethingsomething(NPC_Manager.Instance, productID, productComponent, true)-productComponent.maxItemsPerBox+1))
                         order = true;
                     break;
             }
