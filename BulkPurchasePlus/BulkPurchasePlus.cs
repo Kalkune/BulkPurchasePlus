@@ -21,7 +21,7 @@ using UnityEngine.UI;
 
 namespace BulkPurchasePlus
 {
-    [BepInPlugin("com.Kalkune.BulkPurchasePlus", "BulkPurchasePlus", "1.0.2")]
+    [BepInPlugin("com.Kalkune.BulkPurchasePlus", "BulkPurchasePlus", "1.0.3")]
     public class BulkPurchasePlus : BaseUnityPlugin
     {
 
@@ -58,6 +58,7 @@ namespace BulkPurchasePlus
 			Hook ManagerBlackboardAddShoppingListProduct = new Hook(typeof(ManagerBlackboard).GetMethod("AddShoppingListProduct", BindingFlags.Instance | BindingFlags.Public), typeof(BulkPurchasePlus).GetMethod("ManagerBlackboardAddShoppingListProduct"));
 			Hook ManagerBlackboardRemoveShoppingListProduct = new Hook(typeof(ManagerBlackboard).GetMethod("RemoveShoppingListProduct", BindingFlags.Instance | BindingFlags.Public), typeof(BulkPurchasePlus).GetMethod("ManagerBlackboardRemoveShoppingListProduct"));
 			Hook ManagerBlackboardRemoveAllShoppingList = new Hook(typeof(ManagerBlackboard).GetMethod("RemoveAllShoppingList", BindingFlags.Instance | BindingFlags.Public), typeof(BulkPurchasePlus).GetMethod("ManagerBlackboardRemoveAllShoppingList"));
+			Hook ManagerBlackboardBuyCargo = new Hook(typeof(ManagerBlackboard).GetMethod("BuyCargo", BindingFlags.Instance | BindingFlags.Public), typeof(BulkPurchasePlus).GetMethod("ManagerBlackboardBuyCargo"));
 		}
 		public static void ManagerBlackboardAddShoppingListProduct(Action<ManagerBlackboard , int , float> orig, ManagerBlackboard self, int productID, float boxPrice)
         {
@@ -79,6 +80,17 @@ namespace BulkPurchasePlus
 		public static void ManagerBlackboardRemoveAllShoppingList(Action<ManagerBlackboard> orig, ManagerBlackboard self)
 		{
 			//Debug.LogError("Clearing Current Shopping List");
+			currentShoppingList.Clear();
+			orig(self);
+		}
+		public static void ManagerBlackboardBuyCargo(Action<ManagerBlackboard> orig, ManagerBlackboard self)
+		{
+			ManagerBlackboard managerBlackboard = GameObject.FindFirstObjectByType<ManagerBlackboard>();
+			GameData gameData = GameObject.FindFirstObjectByType<GameData>();
+			if (managerBlackboard.shoppingListParent.transform.childCount == 0 || managerBlackboard.shoppingTotalCharge == 0f)
+				return;
+			if (gameData.gameFunds < managerBlackboard.shoppingTotalCharge)
+				return;
 			currentShoppingList.Clear();
 			orig(self);
 		}
